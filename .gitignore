@@ -1,0 +1,12 @@
+# Generated output
+*_sheets/
+*.xlsx
+*.csv
+
+# Tag exports (may contain site/device details - keep out of a public repo)
+*.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
