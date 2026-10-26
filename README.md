@@ -35,6 +35,21 @@ python tag_export_to_sheets.py tags.json --types udts.json
 python tag_export_to_sheets.py tags.json --types udts.json --filter "GT1/" --xlsx-only
 ```
 
+#### Required alarm associated data
+
+Associated data on alarms is picked up automatically as columns. To make sure specific
+fields appear on **every** alarm, even ones that don't have them yet, list them with
+`--assoc-fields`:
+
+```bash
+python udt_export_to_sheets.py udts.json --assoc-fields "Area,Equipment,Response"
+```
+
+Blank required fields are highlighted yellow in the workbook, and a
+`missing_associated_data` column lists what each alarm still needs, so you can filter on it.
+Names are case-sensitive (as in Ignition); the script warns if it finds a near-match such
+as `equipment` vs `Equipment`. Quote a name that contains a comma: `'Area,"Unit, Bay"'`.
+
 Run either script with `-h` for all options (`--no-resolve`, `--no-param-subst`,
 `--no-review-cols`, `--csv-only`, `--xlsx-only`, `--name`).
 

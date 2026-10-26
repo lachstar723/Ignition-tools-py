@@ -11,6 +11,11 @@ Usage:
     python udt_export_to_sheets.py udts.json
     python udt_export_to_sheets.py udts.json -o review --filter Charger
     python udt_export_to_sheets.py udts.json --xlsx-only
+    python udt_export_to_sheets.py udts.json --assoc-fields "Area,Equipment,Response"
+
+Alarm associated data is exported as extra keys on each alarm, so it is picked
+up automatically as columns. --assoc-fields forces the listed fields to exist
+as columns on every alarm (blank + yellow when not set) so they can be filled in.
 
 Sheets / CSVs produced:
     UDT Definitions  one row per UDT (parent type, parameters, member/alarm counts)
@@ -22,6 +27,7 @@ Sheets / CSVs produced:
 Requires ig_export_common.py in the same folder. Standard library only.
 """
 import argparse
+import csv
 import os
 import sys
 
@@ -42,6 +48,10 @@ def main(argv=None):
                     help="only include UDTs whose path contains this text (case-insensitive, repeatable)")
     ap.add_argument("--no-resolve", action="store_true",
                     help="show definitions exactly as exported (don't merge parent-UDT inheritance or expand nested UDTs)")
+    ap.add_argument("--assoc-fields", default="",
+                    help='comma-separated alarm associated data fields that must appear as columns even if no alarm '
+                         'has them yet, e.g. --assoc-fields "Area,Equipment,Response". Blank cells are highlighted '
+                         'and a missing_associated_data column lists what each alarm lacks. Names are case-sensitive.')
     ap.add_argument("--no-review-cols", action="store_true", help="omit Review Status / Reviewer / Comments columns")
     grp = ap.add_mutually_exclusive_group()
     grp.add_argument("--csv-only", action="store_true")
@@ -93,13 +103,18 @@ def main(argv=None):
                 drow[k] = fmt(v)
         def_rows.append(drow)
 
+    assoc = parse_field_list(args.assoc_fields)
+    if assoc:
+        apply_required_assoc(fl.alarm_rows, assoc)
+
     review = () if args.no_review_cols else REVIEW_COLS
     sheets = [
         info_sheet("Ignition UDT definitions review", args.udt_json, [
             ("UDTs", len(def_rows)), ("Member tags", len(fl.tag_rows)), ("Alarms", len(fl.alarm_rows)),
             ("Inheritance", "Not resolved (--no-resolve)" if args.no_resolve
              else "Parent-UDT members and nested UDT members are merged in"),
-        ]),
+        ] + ([("Required associated data", ", ".join(assoc) +
+               " (yellow = not set yet; see missing_associated_data on the Alarms sheet)")] if assoc else [])),
         Sheet("UDT Definitions",
               build_columns(def_rows, ["udt", "name", "parent_type", "parameters", "member_tags", "alarms"],
                             ["documentation"], ["note"]),
@@ -111,8 +126,9 @@ def main(argv=None):
               fl.tag_rows, review),
         Sheet("Alarms",
               build_columns(fl.alarm_rows, ["udt", "member_path", "tag_dataType", "alarm"], PREFERRED_ALARM_COLS,
-                            ["parent_instance", "parent_instance_type", "overridden_props"], review),
-              fl.alarm_rows, review),
+                            ["parent_instance", "parent_instance_type", "overridden_props",
+                             "missing_associated_data"], review, required=assoc),
+              fl.alarm_rows, review, highlight_blank_cols=assoc),
     ]
     if fl.instance_rows:
         sheets.append(Sheet("Nested UDTs",
@@ -128,6 +144,37 @@ def main(argv=None):
     print("UDTs: %d | member tags: %d | alarms: %d" % (len(def_rows), len(fl.tag_rows), len(fl.alarm_rows)))
     for w in written:
         print("  wrote", w)
+
+
+def parse_field_list(text):
+    """Parse a comma-separated list; quote names containing commas: 'Area,"Unit, Bay"'."""
+    if not text or not text.strip():
+        return []
+    fields = []
+    for f in next(csv.reader([text], skipinitialspace=True)):
+        f = f.strip()
+        if f and f not in fields:
+            fields.append(f)
+    return fields
+
+
+def apply_required_assoc(alarm_rows, fields):
+    """Ensure each required associated data field exists on every alarm row and
+    record which ones each alarm is missing."""
+    seen_keys = set()
+    for r in alarm_rows:
+        seen_keys.update(r.keys())
+    for f in fields:
+        if f not in seen_keys:
+            near = sorted(k for k in seen_keys if k.lower() == f.lower())
+            if near:
+                print("WARNING: associated data '%s' not found, but '%s' exists - names are case-sensitive."
+                      % (f, "', '".join(near)), file=sys.stderr)
+    for r in alarm_rows:
+        missing = [f for f in fields if r.get(f, "") in ("", None)]
+        for f in missing:
+            r.setdefault(f, "")
+        r["missing_associated_data"] = "; ".join(missing)
 
 
 if __name__ == "__main__":

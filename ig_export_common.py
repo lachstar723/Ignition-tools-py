@@ -395,15 +395,18 @@ def _count_overrides(tags):
 # ==========================================================================
 # Output: columns, CSV, XLSX (hand-built - no third-party libs)
 # ==========================================================================
-def build_columns(rows, leading=(), preferred=(), trailing=(), always=()):
+def build_columns(rows, leading=(), preferred=(), trailing=(), always=(), required=()):
+    """leading/preferred/trailing appear only if present in the data.
+    `required` columns always appear (after preferred); `always` go last."""
     present = set()
     for r in rows:
         present.update(r.keys())
     if not rows:
-        return list(leading) + list(always)
-    fixed = set(leading) | set(preferred) | set(trailing) | set(always)
+        return list(leading) + [c for c in required if c not in leading] + list(always)
+    fixed = set(leading) | set(preferred) | set(trailing) | set(always) | set(required)
     cols = [c for c in leading if c in present]
     cols += [c for c in preferred if c in present and c not in cols]
+    cols += [c for c in required if c not in cols]
     cols += sorted(c for c in present if c not in fixed)
     cols += [c for c in trailing if c in present]
     cols += [c for c in always if c not in cols]
@@ -411,11 +414,12 @@ def build_columns(rows, leading=(), preferred=(), trailing=(), always=()):
 
 
 class Sheet(object):
-    def __init__(self, name, columns, rows, highlight_cols=()):
+    def __init__(self, name, columns, rows, highlight_cols=(), highlight_blank_cols=()):
         self.name = name
         self.columns = columns
         self.rows = rows
-        self.highlight_cols = set(highlight_cols)
+        self.highlight_cols = set(highlight_cols)              # always yellow
+        self.highlight_blank_cols = set(highlight_blank_cols)  # yellow only when empty
 
 
 def write_csv(path, sheet):
@@ -501,8 +505,10 @@ def _sheet_xml(sheet):
     for ri, r in enumerate(sheet.rows, start=2):
         out.append('<row r="%d">' % ri)
         for ci, c in enumerate(cols):
-            style = 2 if c in sheet.highlight_cols else 0
-            out.append(_cell("%s%d" % (_col_letter(ci), ri), r.get(c, ""), style))
+            v = r.get(c, "")
+            style = 2 if (c in sheet.highlight_cols or
+                          (c in sheet.highlight_blank_cols and v in ("", None))) else 0
+            out.append(_cell("%s%d" % (_col_letter(ci), ri), v, style))
         out.append('</row>')
     out.append('</sheetData>')
     out.append('<autoFilter ref="A1:%s%d"/>' % (last_col, last_row))
